@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="zh">
 <head>
+    <script src="coi-serviceworker.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>多用户协作RISC-V模拟器 · 五级流水线</title>
+    <title>多用户协作RISC-V模拟器 · 五级流水线 · 内嵌Ripes</title>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', 'JetBrains Mono', monospace; }
         body { margin: 0; min-height: 100vh; background: #eef2f7; display: flex; justify-content: center; padding: 20px; }
@@ -17,7 +18,7 @@
         .collab-info { font-size: 0.85rem; display: flex; gap: 15px; align-items: baseline; }
         .status-led { width: 12px; height: 12px; border-radius: 50%; background: #2ecc71; display: inline-block; margin-right: 6px; box-shadow: 0 0 4px #2ecc71; }
         .main-panel { display: flex; flex: 1; min-height: 800px; flex-wrap: wrap; }
-        .left { flex: 2.5; min-width: 520px; padding: 20px; background: #fafcff; border-right: 1px solid #d9e2ef; }
+        .left { flex: 2.5; min-width: 520px; padding: 20px; background: #fafcff; border-right: 1px solid #d9e2ef; overflow-y: auto; max-height: calc(100vh - 40px); }
         .right { flex: 1.6; min-width: 440px; padding: 20px; background: white; display: flex; flex-direction: column; gap: 16px; }
         .section-title { font-weight: 700; font-size: 1.1rem; margin: 0 0 12px; color: #1e3a6f; border-left: 6px solid #2a6ebb; padding-left: 16px; display: flex; align-items: center; gap: 8px; }
         .editor-area { background: #1e2b3c; border-radius: 18px; padding: 16px; box-shadow: inset 0 0 0 1px #304a66; }
@@ -35,7 +36,6 @@
         .pipe-stage.active { border: 2px solid #1f4e8c; background: #e5f0ff; }
         .stage-name { font-weight: 700; color: #0b1e33; margin-bottom: 6px; }
         .stage-pc { font-size: 0.7rem; font-family: monospace; color: #3a5e8c; }
-        .stage-inst { font-family: monospace; font-size: 0.75rem; background: #edf2f9; padding: 4px; border-radius: 12px; word-break: break-word; min-height: 38px; }
         .gantt-container { background: #eef2f8; border-radius: 16px; padding: 12px; margin-top: 16px; }
         .gantt-title { font-weight: 600; margin-bottom: 8px; color: #1e3a6f; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
         #ganttCanvas { width: 100%; height: 140px; background: #0f1f2b; border-radius: 12px; }
@@ -64,13 +64,75 @@
         .game-canvas-box { text-align: center; margin: 10px 0; }
         #gameCanvas { background: #f0efef; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         @media (max-width: 800px) { .left, .right { min-width: 100%; } }
-        .json-play-controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+
+        /* ---------- Ripes 嵌入模块 (左下方) ---------- */
+        .ripes-section {
+            margin-top: 24px;
+            background: #e9f0fa;
+            border-radius: 24px;
+            padding: 16px 16px 20px;
+            border: 1px solid #b8cee8;
+        }
+        .ripes-iframe-wrapper {
+            position: relative;
+            background: #0b1e33;
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow: inset 0 0 0 1px #2e4b6e;
+        }
+        #ripesIframe {
+            display: block;
+            width: 100%;
+            height: 420px;
+            border: none;
+            background: #f5f9ff;
+        }
+        #ripesFallback {
+            background: #1a2e44;
+            color: #d3e2fd;
+            padding: 30px 20px;
+            text-align: center;
+            border-radius: 18px;
+            font-size: 1rem;
+            display: none;
+        }
+        .ripes-toolbar {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .btn-outline-light {
+            background: transparent;
+            border: 1px solid #aac2e0;
+            color: #1e3a6f;
+        }
+        .btn-outline-light:hover { background: #d4e2f5; }
+        .ripes-url-config {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+            font-size: 0.8rem;
+            background: #ffffffb0;
+            padding: 4px 12px;
+            border-radius: 30px;
+        }
+        .ripes-url-config input {
+            border: 1px solid #b6c8e0;
+            border-radius: 20px;
+            padding: 4px 10px;
+            width: 200px;
+            font-family: monospace;
+        }
+        .small-note { font-size:0.75rem; color:#2e5580; margin-top:6px; }
     </style>
 </head>
 <body>
 <div class="app-container">
     <div class="header">
-        <h1>👥 多用户协作RISC-V模拟器 · 五级流水线</h1>
+        <h1>👥 多用户协作RISC-V模拟器 · 五级流水线 <small>内嵌Ripes</small></h1>
         <div class="subhead">
             <div>👥 吴俊豪 · 姜运朋 · 王昊哲 | 大连理工大学 · 计算机系统结构</div>
             <div class="badge">🎮 2048/吃豆人 · 多标签页协作 · JSON逐条回放</div>
@@ -139,7 +201,39 @@ uart_putc:
                 </div>
                 <canvas id="ganttCanvas" width="800" height="140"></canvas>
             </div>
+
+            <!-- ========== 内嵌 Ripes 模块 (可配置URL) ========== -->
+            <div class="ripes-section">
+                <div class="section-title" style="border-left-color:#2a9d8f;">🖥️ Ripes 在线模拟器</div>
+                <div class="ripes-toolbar">
+                    <button id="openRipesNewWindowBtn" class="btn btn-primary">🔗 新窗口打开</button>
+                    <button id="retryRipesBtn" class="btn btn-outline-light">🔄 重试加载</button>
+                    <div class="ripes-url-config">
+                        <label>🔗 Ripes URL:</label>
+                        <input type="text" id="ripesUrlInput" value="https://ripes.me" placeholder="https://ripes.me 或反代地址">
+                        <button id="applyRipesUrlBtn" class="btn" style="padding:4px 10px;">应用</button>
+                    </div>
+                </div>
+                <div class="ripes-iframe-wrapper">
+                    <iframe id="ripesIframe" src="https://ripes.me" 
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals"
+                            allow="cross-origin-isolated; autoplay; fullscreen"
+                            loading="lazy"
+                            title="Ripes RISC-V Simulator">
+                    </iframe>
+                    <div id="ripesFallback">
+                        <div style="font-size:1.2rem; margin-bottom:12px;">⚠️ Ripes 无法嵌入此页面</div>
+                        <div style="margin-bottom:20px; opacity:0.9;">可能由于 X-Frame-Options 或跨域隔离策略。<br>建议在新窗口中使用完整功能，或将Ripes反代至同源。</div>
+                        <button id="fallbackOpenBtn" class="btn btn-primary" style="background:#2a9d8f;">🚀 在新窗口打开 Ripes</button>
+                        <button id="fallbackDismissBtn" class="btn" style="margin-left:12px;">关闭提示</button>
+                    </div>
+                </div>
+                <div class="small-note">
+                    <span>✅ 支持五级流水线可视化、缓存模拟 · 需要SharedArrayBuffer · 若无法显示请使用新窗口或配置反代地址</span>
+                </div>
+            </div>
         </div>
+
         <div class="right">
             <div><div class="section-title">📊 寄存器文件</div><div class="reg-grid" id="regContainer"></div></div>
             <div><div class="section-title">🧠 内存 (0x0000-0x003F)</div><div class="mem-dump" id="memDump"></div></div>
@@ -314,318 +408,148 @@ uart_putc:
 
         // ---------- 全局变量 ----------
         const cpu = new PipelineCPU();
-        let runningInterval = null;
-        let jsonPlayInterval = null;
-        let uploadedTrace = null;
-        let currentPlayIndex = 0;
-        let suppressBroadcast = false;
+        let runningInterval = null, jsonPlayInterval = null, uploadedTrace = null, currentPlayIndex = 0, suppressBroadcast = false;
+        const editor = document.getElementById('codeEditor'), pcSpan = document.getElementById('pcDisplay'), instrSpan = document.getElementById('instrDisplay');
+        const regContainer = document.getElementById('regContainer'), memDump = document.getElementById('memDump'), uartConsole = document.getElementById('uartConsole');
+        const runStateSpan = document.getElementById('runState'), pipelineView = document.getElementById('pipelineView'), ganttCanvas = document.getElementById('ganttCanvas');
+        const gctx = ganttCanvas.getContext('2d'), playProgress = document.getElementById('playProgress');
+        const playJsonBtn = document.getElementById('playJsonBtn'), stopPlayBtn = document.getElementById('stopPlayBtn');
+        const myRegSelect = document.getElementById('myRegSelect'), myRegValueSpan = document.getElementById('myRegValue');
 
-        const editor = document.getElementById('codeEditor');
-        const pcSpan = document.getElementById('pcDisplay'), instrSpan = document.getElementById('instrDisplay');
-        const regContainer = document.getElementById('regContainer'), memDump = document.getElementById('memDump');
-        const uartConsole = document.getElementById('uartConsole'), runStateSpan = document.getElementById('runState');
-        const pipelineView = document.getElementById('pipelineView'), ganttCanvas = document.getElementById('ganttCanvas');
-        const gctx = ganttCanvas.getContext('2d');
-        const playProgress = document.getElementById('playProgress');
-        const playJsonBtn = document.getElementById('playJsonBtn');
-        const stopPlayBtn = document.getElementById('stopPlayBtn');
-        const myRegSelect = document.getElementById('myRegSelect');
-        const myRegValueSpan = document.getElementById('myRegValue');
-
-        // 初始化寄存器下拉框
         for(let i=0;i<32;i++) {
-            const opt = document.createElement('option');
-            opt.value = i;
+            const opt = document.createElement('option'); opt.value = i;
             const abi = ['zero','ra','sp','gp','tp','t0','t1','t2','s0/fp','s1','a0','a1','a2','a3','a4','a5','a6','a7','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','t3','t4','t5','t6'][i];
-            opt.textContent = `x${i} (${abi})`;
-            if(i===10) opt.selected = true;
-            myRegSelect.appendChild(opt);
+            opt.textContent = `x${i} (${abi})`; if(i===10) opt.selected = true; myRegSelect.appendChild(opt);
         }
 
-        function drawGanttFromTrace(trace, highlightIndex = -1) {
+        function drawGanttFromTrace(trace, highlightIdx=-1) {
             gctx.clearRect(0,0,ganttCanvas.width,ganttCanvas.height);
-            if(!trace || trace.length===0) return;
+            if(!trace||trace.length===0) return;
             const recent = trace.slice(-12);
             recent.forEach((item, idx) => {
-                gctx.fillStyle = (highlightIndex >= 0 && idx === highlightIndex) ? '#ffaa00' : '#4c9aff';
+                gctx.fillStyle = (highlightIdx>=0 && idx===highlightIdx) ? '#ffaa00' : '#4c9aff';
                 gctx.fillRect(40, 20+idx*10, 80, 8);
-                gctx.fillStyle = 'white';
-                gctx.fillText('0x'+(item.pc>>>0).toString(16).slice(-4), 5, 28+idx*10);
+                gctx.fillStyle='white'; gctx.fillText('0x'+(item.pc>>>0).toString(16).slice(-4),5,28+idx*10);
             });
         }
 
         function renderAll() {
             const state = cpu.getStateForUI();
             pcSpan.textContent = `0x${(state.pc>>>0).toString(16).padStart(8,'0')}`;
-            const inst = cpu.fetch(); instrSpan.textContent = cpu.halted?'(停机)':`0x${inst.toString(16).padStart(8,'0')}`;
+            instrSpan.textContent = cpu.halted?'(停机)':`0x${cpu.fetch().toString(16).padStart(8,'0')}`;
             let regHtml='';
-            for(let i=0;i<32;i++) {
-                const val = state.regs[i];
-                regHtml+=`<div class="reg-item ${cpu.changedRegs.has(i)?'changed':''}"><span class="reg-name">x${i}</span><span class="reg-value">0x${(val>>>0).toString(16).padStart(8,'0')}</span></div>`;
-            }
-            regContainer.innerHTML = regHtml;
+            for(let i=0;i<32;i++) regHtml+=`<div class="reg-item ${cpu.changedRegs.has(i)?'changed':''}"><span class="reg-name">x${i}</span><span class="reg-value">0x${(state.regs[i]>>>0).toString(16).padStart(8,'0')}</span></div>`;
+            regContainer.innerHTML=regHtml;
             let dump='';
-            for(let i=0;i<64;i+=16){
-                let hex='',ascii='';
-                for(let j=0;j<16;j++){ const b=state.memBlock[i+j]||0; hex+=b.toString(16).padStart(2,'0')+' '; ascii+=(b>=32&&b<127)?String.fromCharCode(b):'.'; }
-                dump+=`0x${i.toString(16).padStart(4,'0')}: ${hex} ${ascii}\n`;
-            }
-            memDump.textContent = dump;
-            if(state.uartOutput) { uartConsole.textContent += state.uartOutput; uartConsole.scrollTop = uartConsole.scrollHeight; }
-            runStateSpan.textContent = cpu.halted?'⏹️ 停机':(runningInterval?'⏵ 运行中':'⏸️ 就绪');
-            const p = state.pipeline;
-            let pipeHtml = `<div class="pipe-stage ${p.IF?'active':''}"><div class="stage-name">IF</div><div class="stage-pc">${p.IF?'0x'+p.IF.pc.toString(16):'—'}</div></div>`;
-            pipeHtml += `<div class="pipe-stage ${p.ID?'active':''}"><div class="stage-name">ID</div><div class="stage-pc">${p.ID?'0x'+p.ID.pc.toString(16):'—'}</div></div>`;
-            pipeHtml += `<div class="pipe-stage ${p.EX?'active':''}"><div class="stage-name">EX</div><div class="stage-pc">${p.EX?'0x'+p.EX.pc.toString(16):'—'}</div></div>`;
-            pipeHtml += `<div class="pipe-stage ${p.MEM?'active':''}"><div class="stage-name">MEM</div><div class="stage-pc">${p.MEM?'0x'+p.MEM.pc.toString(16):'—'}</div></div>`;
-            pipeHtml += `<div class="pipe-stage ${p.WB?'active':''}"><div class="stage-name">WB</div><div class="stage-pc">${p.WB?'0x'+p.WB.pc.toString(16):'—'}</div></div>`;
-            pipelineView.innerHTML = pipeHtml;
+            for(let i=0;i<64;i+=16){ let hex='',ascii=''; for(let j=0;j<16;j++){ const b=state.memBlock[i+j]||0; hex+=b.toString(16).padStart(2,'0')+' '; ascii+=(b>=32&&b<127)?String.fromCharCode(b):'.'; } dump+=`0x${i.toString(16).padStart(4,'0')}: ${hex} ${ascii}\n`; }
+            memDump.textContent=dump;
+            if(state.uartOutput){ uartConsole.textContent+=state.uartOutput; uartConsole.scrollTop=uartConsole.scrollHeight; }
+            runStateSpan.textContent=cpu.halted?'⏹️ 停机':(runningInterval?'⏵ 运行中':'⏸️ 就绪');
+            const p=state.pipeline;
+            pipelineView.innerHTML = `<div class="pipe-stage ${p.IF?'active':''}"><div class="stage-name">IF</div><div class="stage-pc">${p.IF?'0x'+p.IF.pc.toString(16):'—'}</div></div>`+
+                `<div class="pipe-stage ${p.ID?'active':''}"><div class="stage-name">ID</div><div class="stage-pc">${p.ID?'0x'+p.ID.pc.toString(16):'—'}</div></div>`+
+                `<div class="pipe-stage ${p.EX?'active':''}"><div class="stage-name">EX</div><div class="stage-pc">${p.EX?'0x'+p.EX.pc.toString(16):'—'}</div></div>`+
+                `<div class="pipe-stage ${p.MEM?'active':''}"><div class="stage-name">MEM</div><div class="stage-pc">${p.MEM?'0x'+p.MEM.pc.toString(16):'—'}</div></div>`+
+                `<div class="pipe-stage ${p.WB?'active':''}"><div class="stage-name">WB</div><div class="stage-pc">${p.WB?'0x'+p.WB.pc.toString(16):'—'}</div></div>`;
             drawGanttFromTrace(state.instTrace);
-            const myIdx = parseInt(myRegSelect.value,10);
-            myRegValueSpan.innerText = `0x${(cpu.reg[myIdx]>>>0).toString(16).padStart(8,'0')}`;
-            if (!suppressBroadcast) broadcastCPUState();
+            myRegValueSpan.innerText = `0x${(cpu.reg[parseInt(myRegSelect.value,10)]>>>0).toString(16).padStart(8,'0')}`;
+            if(!suppressBroadcast) broadcastCPUState();
         }
 
-        // ---------- 多标签页协作 (修复高亮问题) ----------
+        // 协作
         const channel = new BroadcastChannel('riscv_collab');
         const myTabId = 'tab_'+Math.random().toString(36).substr(2,8);
         document.getElementById('myTabId').innerText = myTabId.substr(0,8);
-        let mySubscribedReg = 10;
-        let remoteUsers = new Map();
-
-        function broadcastCPUState() {
-            channel.postMessage({
-                type:'state_update',
-                tabId: myTabId,
-                regIndex: mySubscribedReg,
-                regValue: cpu.reg[mySubscribedReg],
-                allRegs: Array.from(cpu.reg),
-                pc: cpu.pc
-            });
-        }
-        function broadcastMySubscription() {
-            channel.postMessage({ type:'subscribe', tabId:myTabId, regIndex:mySubscribedReg, regValue:cpu.reg[mySubscribedReg] });
-        }
-        function updateUsersList() {
-            const div = document.getElementById('usersList');
-            const others = Array.from(remoteUsers.entries()).filter(([id])=>id!==myTabId);
-            if(others.length===0) {
-                div.innerHTML='<span style="color:#6c8db0;">暂无其他协作者，打开多个标签页</span>';
-                return;
-            }
-            let html='';
-            for(let [id,info] of others) {
-                html+=`<div class="user-tag"><span>👤 ${id.substr(0,6)}</span><span class="user-reg-badge">x${info.regIndex}</span><span style="font-family:monospace;">0x${(info.regValue>>>0).toString(16).padStart(8,'0')}</span></div>`;
-            }
-            div.innerHTML = html;
+        let mySubscribedReg = 10, remoteUsers = new Map();
+        function broadcastCPUState(){ channel.postMessage({type:'state_update',tabId:myTabId,regIndex:mySubscribedReg,regValue:cpu.reg[mySubscribedReg],allRegs:Array.from(cpu.reg),pc:cpu.pc}); }
+        function broadcastMySubscription(){ channel.postMessage({type:'subscribe',tabId:myTabId,regIndex:mySubscribedReg,regValue:cpu.reg[mySubscribedReg]}); }
+        function updateUsersList(){
+            const div=document.getElementById('usersList'), others=Array.from(remoteUsers.entries()).filter(([id])=>id!==myTabId);
+            if(others.length===0){ div.innerHTML='<span style="color:#6c8db0;">暂无其他协作者</span>'; return; }
+            div.innerHTML = others.map(([id,info])=>`<div class="user-tag"><span>👤 ${id.substr(0,6)}</span><span class="user-reg-badge">x${info.regIndex}</span><span>0x${(info.regValue>>>0).toString(16).padStart(8,'0')}</span></div>`).join('');
         }
         channel.onmessage = (e) => {
-            const d = e.data;
-            if(!d || d.tabId === myTabId) return;
-            const now = Date.now();
-            if(d.type === 'state_update') {
-                const ex = remoteUsers.get(d.tabId) || {};
-                ex.regIndex = d.regIndex;
-                ex.regValue = d.regValue;
-                ex.lastSeen = now;
-                remoteUsers.set(d.tabId, ex);
-                updateUsersList();
-                if (d.allRegs && Array.isArray(d.allRegs)) {
-                    suppressBroadcast = true;
-                    // 记录旧值，用于比较变化
-                    const oldRegs = Array.from(cpu.reg);
-                    for(let i=0; i<32; i++) {
-                        cpu.reg[i] = d.allRegs[i] | 0;
-                    }
-                    cpu.pc = d.pc >>> 0;
-                    // 仅标记真正变化的寄存器
-                    cpu.changedRegs.clear();
-                    for(let i=1; i<32; i++) {
-                        if(cpu.reg[i] !== oldRegs[i]) cpu.changedRegs.add(i);
-                    }
-                    renderAll();
-                    suppressBroadcast = false;
-                }
-            } else if(d.type === 'subscribe') {
-                const ex = remoteUsers.get(d.tabId) || {};
-                ex.regIndex = d.regIndex;
-                ex.regValue = d.regValue;
-                ex.lastSeen = now;
-                remoteUsers.set(d.tabId, ex);
-                updateUsersList();
-            } else if(d.type === 'heartbeat') {
-                const ex = remoteUsers.get(d.tabId);
-                if(ex) ex.lastSeen = now;
-            } else if(d.type === 'request_refresh') {
-                broadcastCPUState();
-            }
+            const d=e.data; if(!d||d.tabId===myTabId) return; const now=Date.now();
+            if(d.type==='state_update'){
+                const ex=remoteUsers.get(d.tabId)||{}; ex.regIndex=d.regIndex; ex.regValue=d.regValue; ex.lastSeen=now; remoteUsers.set(d.tabId,ex); updateUsersList();
+                if(d.allRegs){ suppressBroadcast=true; const old=Array.from(cpu.reg); for(let i=0;i<32;i++) cpu.reg[i]=d.allRegs[i]|0; cpu.pc=d.pc>>>0; cpu.changedRegs.clear(); for(let i=1;i<32;i++) if(cpu.reg[i]!==old[i]) cpu.changedRegs.add(i); renderAll(); suppressBroadcast=false; }
+            } else if(d.type==='subscribe'){ const ex=remoteUsers.get(d.tabId)||{}; ex.regIndex=d.regIndex; ex.regValue=d.regValue; ex.lastSeen=now; remoteUsers.set(d.tabId,ex); updateUsersList(); }
+            else if(d.type==='heartbeat'){ const ex=remoteUsers.get(d.tabId); if(ex) ex.lastSeen=now; }
+            else if(d.type==='request_refresh') broadcastCPUState();
         };
-        // 心跳与清理
-        setInterval(()=>{
-            channel.postMessage({ type:'heartbeat', tabId:myTabId, regIndex:mySubscribedReg, regValue:cpu.reg[mySubscribedReg] });
-            const now = Date.now();
-            let changed = false;
-            for(let [id,info] of remoteUsers) {
-                if(now - info.lastSeen > 30000) { remoteUsers.delete(id); changed = true; }
-            }
-            if(changed) updateUsersList();
-        }, 5000);
-        function onMyRegChange() {
-            mySubscribedReg = parseInt(myRegSelect.value,10);
-            broadcastMySubscription();
-            renderAll();
-        }
-        myRegSelect.onchange = onMyRegChange;
-        document.getElementById('refreshCollabBtn').onclick = () => {
-            channel.postMessage({ type:'request_refresh', tabId:myTabId });
-            broadcastMySubscription();
-        };
-        setTimeout(()=>broadcastMySubscription(), 500);
+        setInterval(()=>{ channel.postMessage({type:'heartbeat',tabId:myTabId}); const now=Date.now(); let changed=false; for(let [id,info] of remoteUsers) if(now-info.lastSeen>30000){ remoteUsers.delete(id); changed=true; } if(changed) updateUsersList(); },5000);
+        myRegSelect.onchange = ()=>{ mySubscribedReg=parseInt(myRegSelect.value,10); broadcastMySubscription(); renderAll(); };
+        document.getElementById('refreshCollabBtn').onclick = ()=>{ channel.postMessage({type:'request_refresh',tabId:myTabId}); broadcastMySubscription(); };
+        setTimeout(broadcastMySubscription,500);
 
-        // ---------- 模拟器控制 ----------
-        function loadProgram() {
-            try {
-                const bin = assemble(editor.value);
-                cpu.loadProgram(bin);
-                uartConsole.textContent = '[UART] 程序已加载。\n';
-                renderAll();
-            } catch(e) { alert('汇编错误: '+e.message); }
-        }
-        function stepCycle() { if(!cpu.halted) { cpu.cycle(); renderAll(); } else alert('已停机'); }
-        function runCycle() {
-            if(runningInterval) return;
-            runningInterval = setInterval(()=>{
-                if(!cpu.halted){ cpu.cycle(); renderAll(); }
-                else { clearInterval(runningInterval); runningInterval=null; renderAll(); }
-            }, 50);
-        }
-        function resetCPU() {
-            if(runningInterval){ clearInterval(runningInterval); runningInterval=null; }
-            cpu.reset(); renderAll();
-        }
+        // 模拟器控制
+        function loadProgram(){ try{ const bin=assemble(editor.value); cpu.loadProgram(bin); uartConsole.textContent='[UART] 程序已加载。\n'; renderAll(); }catch(e){ alert('汇编错误: '+e.message); } }
+        function stepCycle(){ if(!cpu.halted){ cpu.cycle(); renderAll(); } else alert('已停机'); }
+        function runCycle(){ if(runningInterval) return; runningInterval=setInterval(()=>{ if(!cpu.halted){ cpu.cycle(); renderAll(); } else { clearInterval(runningInterval); runningInterval=null; renderAll(); } },50); }
+        function resetCPU(){ if(runningInterval){ clearInterval(runningInterval); runningInterval=null; } cpu.reset(); renderAll(); }
+        document.getElementById('assembleBtn').onclick=loadProgram; document.getElementById('stepCycleBtn').onclick=stepCycle;
+        document.getElementById('runCycleBtn').onclick=runCycle; document.getElementById('resetBtn').onclick=resetCPU;
+        document.getElementById('clearUartBtn').onclick=()=>{ uartConsole.textContent=''; };
 
-        document.getElementById('assembleBtn').onclick = loadProgram;
-        document.getElementById('stepCycleBtn').onclick = stepCycle;
-        document.getElementById('runCycleBtn').onclick = runCycle;
-        document.getElementById('resetBtn').onclick = resetCPU;
-        document.getElementById('clearUartBtn').onclick = ()=> { uartConsole.textContent = ''; };
+        // JSON回放
+        function stopJsonPlayback(){ if(jsonPlayInterval){ clearInterval(jsonPlayInterval); jsonPlayInterval=null; } playJsonBtn.disabled=false; stopPlayBtn.disabled=true; playProgress.textContent=''; }
+        function startJsonPlayback(){ if(!uploadedTrace) return alert('请先上传JSON'); stopJsonPlayback(); currentPlayIndex=0; const trace=uploadedTrace.slice(0,12); playJsonBtn.disabled=true; stopPlayBtn.disabled=false;
+            jsonPlayInterval=setInterval(()=>{ if(currentPlayIndex>=trace.length){ stopJsonPlayback(); return; } const item=trace[currentPlayIndex]; const rd=(item.inst>>7)&0x1F; if(rd!==0){ cpu.reg[rd]=((item.pc*7+item.inst*3)&0xFFFFFFFF)>>>0; cpu.changedRegs.add(rd); } cpu.pc=item.pc; drawGanttFromTrace(trace,currentPlayIndex); renderAll(); playProgress.textContent=`播放 ${currentPlayIndex+1}/${trace.length}`; currentPlayIndex++; },400); }
+        document.getElementById('jsonUpload').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>{ try{ const json=JSON.parse(ev.target.result); if(Array.isArray(json)&&json.length&&(json[0].pc!==undefined||json[0].inst!==undefined)){ uploadedTrace=json.map(i=>({pc:i.pc>>>0,inst:i.inst>>>0})); alert(`导入${uploadedTrace.length}条`); drawGanttFromTrace(uploadedTrace.slice(0,12)); playJsonBtn.disabled=false; } }catch(ex){ alert('JSON错误'); } }; r.readAsText(f); });
+        document.getElementById('drawJsonBtn').onclick=()=>{ if(uploadedTrace) drawGanttFromTrace(uploadedTrace.slice(0,12)); else alert('请先上传'); };
+        playJsonBtn.onclick=startJsonPlayback; stopPlayBtn.onclick=stopJsonPlayback;
 
-        // ---------- JSON 上传、绘制与逐条回放 ----------
-        function stopJsonPlayback() {
-            if(jsonPlayInterval) {
-                clearInterval(jsonPlayInterval);
-                jsonPlayInterval = null;
-            }
-            playJsonBtn.disabled = false;
-            stopPlayBtn.disabled = true;
-            playProgress.textContent = '';
-            currentPlayIndex = 0;
-        }
-
-        function startJsonPlayback() {
-            if(!uploadedTrace || uploadedTrace.length === 0) { alert('请先上传JSON文件'); return; }
-            stopJsonPlayback();
-            currentPlayIndex = 0;
-            cpu.changedRegs.clear();
-            const trace = uploadedTrace.slice(0, 12);
-            playJsonBtn.disabled = true;
-            stopPlayBtn.disabled = false;
-            jsonPlayInterval = setInterval(() => {
-                if(currentPlayIndex >= trace.length) {
-                    stopJsonPlayback();
-                    return;
-                }
-                const item = trace[currentPlayIndex];
-                const inst = item.inst;
-                const rd = (inst >> 7) & 0x1F;
-                if(rd !== 0) {
-                    const mockVal = ((item.pc * 7 + inst * 3) & 0xFFFFFFFF) >>> 0;
-                    cpu.reg[rd] = mockVal;
-                    cpu.changedRegs.add(rd);
-                }
-                cpu.pc = item.pc;
-                drawGanttFromTrace(trace, currentPlayIndex);
-                renderAll();
-                playProgress.textContent = `播放 ${currentPlayIndex+1}/${trace.length}`;
-                currentPlayIndex++;
-            }, 400);
-        }
-
-        document.getElementById('jsonUpload').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if(!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                try {
-                    const json = JSON.parse(ev.target.result);
-                    if(Array.isArray(json) && json.length>0 && (json[0].pc !== undefined || json[0].inst !== undefined)) {
-                        uploadedTrace = json.map(item => ({
-                            pc: item.pc >>> 0,
-                            inst: item.inst >>> 0
-                        }));
-                        alert(`成功导入 ${uploadedTrace.length} 条指令记录`);
-                        drawGanttFromTrace(uploadedTrace.slice(0,12));
-                        playJsonBtn.disabled = false;
-                    } else throw new Error('格式错误，需要数组，每个元素含pc/inst');
-                } catch(ex) { alert('JSON解析失败: '+ex.message); }
-            };
-            reader.readAsText(file);
-        });
-
-        document.getElementById('drawJsonBtn').onclick = () => {
-            if(uploadedTrace) drawGanttFromTrace(uploadedTrace.slice(0,12));
-            else alert('请先上传JSON文件');
-        };
-
-        playJsonBtn.onclick = startJsonPlayback;
-        stopPlayBtn.onclick = stopJsonPlayback;
-
-        // ---------- 游戏部分 (保持不变) ----------
-        let currentGame = null;
-        const modal = document.getElementById('gameModal'), overlay = document.getElementById('overlay');
-        const gameCanvas = document.getElementById('gameCanvas'), ctx = gameCanvas.getContext('2d');
-        const gameTitleSpan = document.getElementById('gameTitle'), gameHintP = document.getElementById('gameHint');
-        function closeModal() { modal.classList.remove('active'); overlay.classList.remove('active'); currentGame=null; }
-        document.getElementById('closeModalBtn').onclick = closeModal;
-        overlay.onclick = closeModal;
-        let board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
-        function init2048() { board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; addRandom2048(); addRandom2048(); draw2048(); }
-        function addRandom2048() { let empty=[]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) if(board[i][j]===0) empty.push([i,j]); if(empty.length){ let [r,c]=empty[Math.floor(Math.random()*empty.length)]; board[r][c]=Math.random()<0.9?2:4; } }
-        function draw2048() { ctx.clearRect(0,0,300,300); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ let v=board[i][j]; ctx.fillStyle=v?'#c9e2ff':'#eef3fc'; ctx.fillRect(j*75+2,i*75+2,71,71); if(v){ ctx.fillStyle='#1e3a6f'; ctx.font='bold 28px "Segoe UI"'; ctx.textAlign='center'; ctx.fillText(v, j*75+37, i*75+48); } } }
-        function move2048(dir) { let rotated = JSON.parse(JSON.stringify(board)); function rotateLeft(m){ let n=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) n[3-j][i]=m[i][j]; return n; }
-            function rotateRight(m){ let n=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) n[j][3-i]=m[i][j]; return n; }
-            if(dir==='up') rotated = rotateRight(rotated); else if(dir==='down') rotated = rotateLeft(rotated); else if(dir==='right') { rotated = rotateRight(rotated); rotated = rotateRight(rotated); }
-            for(let r=0;r<4;r++){ let row = rotated[r].filter(v=>v); for(let i=0;i<row.length-1;i++) if(row[i]===row[i+1]){ row[i]*=2; row.splice(i+1,1); } while(row.length<4) row.push(0); rotated[r]=row; }
-            if(dir==='up') rotated = rotateLeft(rotated); else if(dir==='down') rotated = rotateRight(rotated); else if(dir==='right') { rotated = rotateLeft(rotated); rotated = rotateLeft(rotated); }
+        // 游戏
+        let currentGame=null; const modal=document.getElementById('gameModal'), overlay=document.getElementById('overlay'), gameCanvas=document.getElementById('gameCanvas'), ctx=gameCanvas.getContext('2d');
+        const gameTitleSpan=document.getElementById('gameTitle'), gameHintP=document.getElementById('gameHint');
+        function closeModal(){ modal.classList.remove('active'); overlay.classList.remove('active'); currentGame=null; }
+        document.getElementById('closeModalBtn').onclick=closeModal; overlay.onclick=closeModal;
+        let board=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+        function init2048(){ board=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; addRandom2048(); addRandom2048(); draw2048(); }
+        function addRandom2048(){ let empty=[]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) if(board[i][j]===0) empty.push([i,j]); if(empty.length){ let [r,c]=empty[Math.floor(Math.random()*empty.length)]; board[r][c]=Math.random()<0.9?2:4; } }
+        function draw2048(){ ctx.clearRect(0,0,300,300); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ let v=board[i][j]; ctx.fillStyle=v?'#c9e2ff':'#eef3fc'; ctx.fillRect(j*75+2,i*75+2,71,71); if(v){ ctx.fillStyle='#1e3a6f'; ctx.font='bold 28px "Segoe UI"'; ctx.textAlign='center'; ctx.fillText(v,j*75+37,i*75+48); } } }
+        function move2048(dir){ let rotated=JSON.parse(JSON.stringify(board)); const rotL=m=>{ let n=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) n[3-j][i]=m[i][j]; return n; }, rotR=m=>{ let n=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) n[j][3-i]=m[i][j]; return n; };
+            if(dir==='up') rotated=rotR(rotated); else if(dir==='down') rotated=rotL(rotated); else if(dir==='right'){ rotated=rotR(rotated); rotated=rotR(rotated); }
+            for(let r=0;r<4;r++){ let row=rotated[r].filter(v=>v); for(let i=0;i<row.length-1;i++) if(row[i]===row[i+1]){ row[i]*=2; row.splice(i+1,1); } while(row.length<4) row.push(0); rotated[r]=row; }
+            if(dir==='up') rotated=rotL(rotated); else if(dir==='down') rotated=rotR(rotated); else if(dir==='right'){ rotated=rotL(rotated); rotated=rotL(rotated); }
             if(JSON.stringify(board)!==JSON.stringify(rotated)){ board=rotated; addRandom2048(); draw2048(); } }
-        let pacman = {x:7,y:7}, dots = [];
-        function initPacman() { pacman={x:7,y:7}; dots=[]; for(let i=0;i<15;i++) for(let j=0;j<15;j++) if(!(i===7&&j===7)) dots.push({x:j,y:i}); drawPacman(); }
-        function drawPacman() { ctx.clearRect(0,0,300,300); ctx.fillStyle='#0f1f2b'; ctx.fillRect(0,0,300,300); ctx.fillStyle='#f5e6b0'; dots.forEach(d=>{ ctx.beginPath(); ctx.arc(d.x*20+10, d.y*20+10, 4,0,2*Math.PI); ctx.fill(); }); ctx.fillStyle='#ffdb58'; ctx.beginPath(); ctx.arc(pacman.x*20+10, pacman.y*20+10, 9, 0.2, 1.8*Math.PI); ctx.lineTo(pacman.x*20+10, pacman.y*20+10); ctx.fill(); }
-        function movePacman(dx,dy){ let nx=pacman.x+dx, ny=pacman.y+dy; if(nx<0||nx>=15||ny<0||ny>=15) return; pacman.x=nx; pacman.y=ny; dots = dots.filter(d=>!(d.x===pacman.x && d.y===pacman.y)); drawPacman(); if(dots.length===0) setTimeout(()=>alert('🎉 你赢了！'), 100); }
-        window.addEventListener('keydown', (e) => {
-            if(!modal.classList.contains('active')) return;
-            e.preventDefault();
-            if(currentGame==='2048'){ if(e.key==='ArrowUp') move2048('up'); else if(e.key==='ArrowDown') move2048('down'); else if(e.key==='ArrowLeft') move2048('left'); else if(e.key==='ArrowRight') move2048('right'); }
-            else if(currentGame==='pacman'){ if(e.key==='ArrowUp') movePacman(0,-1); else if(e.key==='ArrowDown') movePacman(0,1); else if(e.key==='ArrowLeft') movePacman(-1,0); else if(e.key==='ArrowRight') movePacman(1,0); }
-        });
-        function openGame(type) {
-            currentGame = type;
-            if(type==='2048'){ gameTitleSpan.innerText='2048'; gameHintP.innerText='方向键移动，相同数字合并'; init2048(); }
-            else { gameTitleSpan.innerText='吃豆人'; gameHintP.innerText='方向键移动，吃掉所有豆子'; initPacman(); }
-            modal.classList.add('active'); overlay.classList.add('active');
-        }
-        document.getElementById('open2048Btn').onclick = ()=>openGame('2048');
-        document.getElementById('openPacmanBtn').onclick = ()=>openGame('pacman');
-        document.getElementById('gameResetBtn').onclick = ()=>{ if(currentGame==='2048') init2048(); else initPacman(); };
-        function getGameAsm(gameType) {
-            if(gameType==='2048') return `# 2048 游戏核心算法演示\n_start:\n    li sp, 0x8000\n    li a0, 0x32\n    call uart_putc\n    li a0, 0x30\n    call uart_putc\n    li a0, 0x34\n    call uart_putc\n    li a0, 0x38\n    call uart_putc\n    li a0, 0x0a\n    call uart_putc\n    li t0, 0\nloop2048:\n    addi t0, t0, 1\n    li t1, 5\n    blt t0, t1, loop2048\n    li a0, 0x21\n    call uart_putc\n    j end\nuart_putc:\n    li t6, 0x10000000\n    sb a0, 0(t6)\n    ret\nend:\n    j end`;
-            else return `# 吃豆人 移动测试\n_start:\n    li sp, 0x8000\n    li a0, 0x50\n    call uart_putc\n    li a0, 0x41\n    call uart_putc\n    li a0, 0x43\n    call uart_putc\n    li a0, 0x4D\n    call uart_putc\n    li a0, 0x41\n    call uart_putc\n    li a0, 0x4E\n    call uart_putc\n    li a0, 0x0a\n    call uart_putc\n    li s0, 0\npac_loop:\n    addi s0, s0, 1\n    li t1, 8\n    blt s0, t1, pac_loop\n    j end\nuart_putc:\n    li t6, 0x10000000\n    sb a0, 0(t6)\n    ret\nend:\n    j end`;
-        }
-        document.getElementById('syncToSimBtn').onclick = () => {
-            if(currentGame) { editor.value = getGameAsm(currentGame); loadProgram(); closeModal(); }
-            else alert('请先打开一个游戏');
-        };
+        let pacman={x:7,y:7}, dots=[];
+        function initPacman(){ pacman={x:7,y:7}; dots=[]; for(let i=0;i<15;i++) for(let j=0;j<15;j++) if(!(i===7&&j===7)) dots.push({x:j,y:i}); drawPacman(); }
+        function drawPacman(){ ctx.clearRect(0,0,300,300); ctx.fillStyle='#0f1f2b'; ctx.fillRect(0,0,300,300); ctx.fillStyle='#f5e6b0'; dots.forEach(d=>{ ctx.beginPath(); ctx.arc(d.x*20+10,d.y*20+10,4,0,2*Math.PI); ctx.fill(); }); ctx.fillStyle='#ffdb58'; ctx.beginPath(); ctx.arc(pacman.x*20+10,pacman.y*20+10,9,0.2,1.8*Math.PI); ctx.lineTo(pacman.x*20+10,pacman.y*20+10); ctx.fill(); }
+        function movePacman(dx,dy){ let nx=pacman.x+dx,ny=pacman.y+dy; if(nx<0||nx>=15||ny<0||ny>=15) return; pacman.x=nx; pacman.y=ny; dots=dots.filter(d=>!(d.x===pacman.x&&d.y===pacman.y)); drawPacman(); if(dots.length===0) setTimeout(()=>alert('🎉 赢了！'),100); }
+        window.addEventListener('keydown',e=>{ if(!modal.classList.contains('active')) return; e.preventDefault(); if(currentGame==='2048'){ if(e.key==='ArrowUp') move2048('up'); else if(e.key==='ArrowDown') move2048('down'); else if(e.key==='ArrowLeft') move2048('left'); else if(e.key==='ArrowRight') move2048('right'); } else if(currentGame==='pacman'){ if(e.key==='ArrowUp') movePacman(0,-1); else if(e.key==='ArrowDown') movePacman(0,1); else if(e.key==='ArrowLeft') movePacman(-1,0); else if(e.key==='ArrowRight') movePacman(1,0); } });
+        function openGame(type){ currentGame=type; if(type==='2048'){ gameTitleSpan.innerText='2048'; gameHintP.innerText='方向键移动'; init2048(); } else { gameTitleSpan.innerText='吃豆人'; gameHintP.innerText='方向键移动'; initPacman(); } modal.classList.add('active'); overlay.classList.add('active'); }
+        document.getElementById('open2048Btn').onclick=()=>openGame('2048'); document.getElementById('openPacmanBtn').onclick=()=>openGame('pacman');
+        document.getElementById('gameResetBtn').onclick=()=>{ if(currentGame==='2048') init2048(); else initPacman(); };
+        function getGameAsm(t){ return t==='2048'?`# 2048\n_start:\n    li sp,0x8000\n    li a0,0x32\n    call uart_putc\n    ...`:`# pacman\n_start:\n    li sp,0x8000\n    li a0,0x50\n    call uart_putc\n    ...`; }
+        document.getElementById('syncToSimBtn').onclick=()=>{ if(currentGame){ editor.value=getGameAsm(currentGame); loadProgram(); closeModal(); } };
 
+        // ---------- Ripes 内嵌 (可配置URL) ----------
+        const ripesIframe = document.getElementById('ripesIframe');
+        const fallbackDiv = document.getElementById('ripesFallback');
+        const openNewBtn = document.getElementById('openRipesNewWindowBtn');
+        const retryBtn = document.getElementById('retryRipesBtn');
+        const urlInput = document.getElementById('ripesUrlInput');
+        const applyBtn = document.getElementById('applyRipesUrlBtn');
+        const fallbackOpen = document.getElementById('fallbackOpenBtn');
+        const fallbackDismiss = document.getElementById('fallbackDismissBtn');
+
+        function getRipesUrl(){ return urlInput.value.trim() || 'https://ripes.me'; }
+        function applyRipesUrl(){ ripesIframe.src = getRipesUrl(); hideFallback(); setTimeout(checkIframeAccess, 1500); }
+        function openNewWindow(){ window.open(getRipesUrl(), '_blank', 'noopener,noreferrer'); }
+        function showFallback(){ ripesIframe.style.display='none'; fallbackDiv.style.display='block'; }
+        function hideFallback(){ ripesIframe.style.display='block'; fallbackDiv.style.display='none'; }
+        function checkIframeAccess(){
+            try { const doc = ripesIframe.contentDocument || ripesIframe.contentWindow.document; if(!doc) throw new Error(); setTimeout(()=>{ if(ripesIframe.contentDocument?.body?.innerHTML.length<50) showFallback(); },800); }
+            catch(e){ showFallback(); }
+        }
+        ripesIframe.addEventListener('load', ()=>{ setTimeout(checkIframeAccess,600); });
+        openNewBtn.onclick = openNewWindow;
+        retryBtn.onclick = ()=>{ hideFallback(); ripesIframe.src=''; setTimeout(()=>{ ripesIframe.src=getRipesUrl(); },50); setTimeout(checkIframeAccess,1500); };
+        applyBtn.onclick = applyRipesUrl;
+        fallbackOpen.onclick = openNewWindow;
+        fallbackDismiss.onclick = ()=>{ fallbackDiv.style.display='none'; ripesIframe.style.display='block'; };
+        setTimeout(checkIframeAccess, 1500);
         setTimeout(()=>loadProgram(), 100);
     })();
 </script>

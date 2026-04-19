@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>多用户协作RISC-V模拟器 · 五级流水线</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', 'JetBrains Mono', monospace; }
+        body { margin: 0; min-height: 100vh; background: #eef2f7; display: flex; justify-content: center; padding: 20px; }
+        .app-container { max-width: 1900px; width: 100%; background: white; border-radius: 32px; box-shadow: 0 20px 40px rgba(0,20,60,0.12); overflow: hidden; display: flex; flex-direction: column; }
+        .header { background: linear-gradient(105deg, #0b1e33 0%, #1a3a5c 100%); color: white; padding: 16px 28px; }
+        .header h1 { margin: 0 0 4px; font-weight: 600; font-size: 1.9rem; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .header h1 small { font-size: 1rem; font-weight: 400; background: #2d4e74; padding: 4px 14px; border-radius: 40px; color: #e0edff; }
+        .subhead { display: flex; justify-content: space-between; flex-wrap: wrap; margin-top: 6px; gap: 8px; }
+        .badge { background: #ffd966; color: #0b1e33; padding: 6px 16px; border-radius: 30px; font-weight: 600; }
+        .collab-bar { background: #e9f0f9; margin: 12px 20px 0 20px; border-radius: 60px; padding: 8px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; }
+        .collab-info { font-size: 0.85rem; display: flex; gap: 15px; align-items: baseline; }
+        .status-led { width: 12px; height: 12px; border-radius: 50%; background: #2ecc71; display: inline-block; margin-right: 6px; box-shadow: 0 0 4px #2ecc71; }
+        .main-panel { display: flex; flex: 1; min-height: 800px; flex-wrap: wrap; }
+        .left { flex: 2.5; min-width: 520px; padding: 20px; background: #fafcff; border-right: 1px solid #d9e2ef; }
+        .right { flex: 1.6; min-width: 440px; padding: 20px; background: white; display: flex; flex-direction: column; gap: 16px; }
+        .section-title { font-weight: 700; font-size: 1.1rem; margin: 0 0 12px; color: #1e3a6f; border-left: 6px solid #2a6ebb; padding-left: 16px; display: flex; align-items: center; gap: 8px; }
+        .editor-area { background: #1e2b3c; border-radius: 18px; padding: 16px; box-shadow: inset 0 0 0 1px #304a66; }
+        #codeEditor { width: 100%; height: 220px; background: #11212e; color: #e3e9f2; font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.5; padding: 16px; border: none; border-radius: 12px; resize: vertical; outline: none; border: 1px solid #2e4b6e; }
+        .toolbar { display: flex; gap: 12px; margin: 16px 0 8px; flex-wrap: wrap; }
+        .btn { background: white; border: 1px solid #b6c8e0; padding: 10px 18px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; color: #1f3a5f; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: #1f4e8c; border-color: #0e3a6b; color: white; }
+        .btn-game { background: #4f3b8c; border-color: #3a2a6a; color: white; }
+        .btn-json { background: #2c7a4d; border-color: #1e5a3a; color: white; }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 12px -6px rgba(0,35,70,0.15); }
+        .status-bar { display: flex; justify-content: space-between; background: #e6edf8; padding: 10px 16px; border-radius: 40px; font-size: 0.9rem; flex-wrap: wrap; }
+        .pipeline-container { background: #f2f6fc; border-radius: 20px; padding: 16px 12px; margin-top: 12px; }
+        .pipeline-grid { display: flex; gap: 10px; justify-content: space-between; flex-wrap: wrap; }
+        .pipe-stage { background: white; border-radius: 16px; padding: 10px 6px; flex: 1; text-align: center; box-shadow: 0 4px 8px rgba(0,0,0,0.02); border: 1px solid #cbd6e6; min-width: 80px; }
+        .pipe-stage.active { border: 2px solid #1f4e8c; background: #e5f0ff; }
+        .stage-name { font-weight: 700; color: #0b1e33; margin-bottom: 6px; }
+        .stage-pc { font-size: 0.7rem; font-family: monospace; color: #3a5e8c; }
+        .stage-inst { font-family: monospace; font-size: 0.75rem; background: #edf2f9; padding: 4px; border-radius: 12px; word-break: break-word; min-height: 38px; }
+        .gantt-container { background: #eef2f8; border-radius: 16px; padding: 12px; margin-top: 16px; }
+        .gantt-title { font-weight: 600; margin-bottom: 8px; color: #1e3a6f; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+        #ganttCanvas { width: 100%; height: 140px; background: #0f1f2b; border-radius: 12px; }
+        .reg-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; max-height: 300px; overflow-y: auto; padding: 8px; background: #f8fafd; border-radius: 16px; }
+        .reg-item { background: white; border-radius: 12px; padding: 6px 8px; border: 1px solid #dee9f2; display: flex; justify-content: space-between; font-size: 0.8rem; }
+        .reg-name { font-weight: 700; color: #1e3a6f; }
+        .reg-value { font-family: monospace; background: #edf3fa; padding: 2px 8px; border-radius: 20px; }
+        .changed { background: #fdefd4; border-left: 4px solid #e68a2e; }
+        .mem-dump { background: #0f1f2b; color: #bdd6ff; padding: 12px; border-radius: 14px; font-family: monospace; font-size: 12px; overflow-x: auto; white-space: pre; max-height: 130px; }
+        .uart-console { background: #0b1420; color: #9bc5ff; border-radius: 14px; padding: 12px 16px; font-family: monospace; height: 100px; overflow-y: auto; border: 1px solid #2e5580; white-space: pre-wrap; }
+        .multi-user-panel { background: #f5f7fe; border-radius: 24px; padding: 16px; margin-top: 12px; border: 1px solid #cfdff2; }
+        .my-reg-card { background: white; border-radius: 20px; padding: 10px 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+        .reg-selector { display: flex; gap: 12px; align-items: center; background: #eef3fc; padding: 6px 14px; border-radius: 40px; }
+        .reg-selector label { font-weight: bold; }
+        #myRegSelect { padding: 4px 8px; border-radius: 30px; border: 1px solid #b6c8e0; }
+        .my-reg-value { font-family: monospace; font-size: 1.4rem; font-weight: bold; background: #1e3a6f; color: white; padding: 4px 16px; border-radius: 60px; }
+        .online-users { background: #eef2f8; border-radius: 20px; padding: 12px; margin-top: 12px; }
+        .users-list { display: flex; flex-wrap: wrap; gap: 12px; max-height: 180px; overflow-y: auto; }
+        .user-tag { background: white; border-radius: 40px; padding: 6px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-size: 0.8rem; display: flex; align-items: center; gap: 8px; }
+        .user-reg-badge { background: #2a6ebb; color: white; border-radius: 30px; padding: 2px 8px; font-weight: bold; }
+        .footer-note { margin-top: 6px; font-size: 0.8rem; color: #4f658d; text-align: right; }
+        .game-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 32px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); padding: 20px; z-index: 1000; display: none; border: 1px solid #a0b8d0; width: 380px; }
+        .game-modal.active { display: block; }
+        .overlay { position: fixed; top:0;left:0;width:100%;height:100%; background: rgba(0,0,0,0.3); z-index:999; display: none; }
+        .overlay.active { display: block; }
+        .game-canvas-box { text-align: center; margin: 10px 0; }
+        #gameCanvas { background: #f0efef; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        @media (max-width: 800px) { .left, .right { min-width: 100%; } }
+        .json-play-controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <div class="header">
+        <h1>👥 多用户协作RISC-V模拟器 · 五级流水线</h1>
+        <div class="subhead">
+            <div>👥 吴俊豪 · 姜运朋 · 王昊哲 | 大连理工大学 · 计算机系统结构</div>
+            <div class="badge">🎮 2048/吃豆人 · 多标签页协作 · JSON逐条回放</div>
+        </div>
+    </div>
+    <div class="collab-bar">
+        <div class="collab-info"><span class="status-led"></span> 多用户协作已启用 — 打开多个标签页，每个可订阅不同寄存器</div>
+        <div style="font-size:0.8rem;">📌 本标签页: <span id="myTabId">...</span></div>
+        <div style="display: flex; gap: 8px;">
+            <label class="btn btn-json" style="padding: 6px 14px;">📂 上传JSON流水线<input type="file" id="jsonUpload" accept=".json" style="display:none"></label>
+            <button id="drawJsonBtn" class="btn btn-json">📊 一次性绘制</button>
+            <button id="playJsonBtn" class="btn btn-json" disabled>▶️ 播放JSON</button>
+            <button id="stopPlayBtn" class="btn" disabled>⏹️ 停止</button>
+        </div>
+    </div>
+    <div class="main-panel">
+        <div class="left">
+            <div class="section-title"><span>📝 RISC-V 汇编 (RV32I)</span><span style="margin-left: auto; font-size:0.8rem;">支持li/mv/call/ret</span></div>
+            <div class="editor-area"><textarea id="codeEditor" spellcheck="false"># 多寄存器变化演示程序
+_start:
+    li sp, 0x8000
+    li t0, 0
+    li t1, 1
+    li t2, 12
+    li t3, 0
+loop:
+    add  t0, t0, t1
+    addi t1, t1, 1
+    sub  t3, t1, t0
+    mv   a0, t0
+    andi a0, a0, 0x7F
+    addi a0, a0, 0x20
+    mv   a1, t1
+    mv   a2, t3
+    call uart_putc
+    blt  t1, t2, loop
+    li   a0, 0x0A
+    call uart_putc
+    li   s0, 0x1111
+    li   s1, 0x2222
+    li   s2, 0x3333
+    li   s3, 0x4444
+    add  s4, s0, s1
+    sub  s5, s2, s3
+end:
+    j end
+uart_putc:
+    li   t6, 0x10000000
+    sb   a0, 0(t6)
+    ret</textarea></div>
+            <div class="toolbar">
+                <button id="assembleBtn" class="btn btn-primary">🔧 汇编 & 加载</button>
+                <button id="stepCycleBtn" class="btn">⏯️ 单周期</button>
+                <button id="runCycleBtn" class="btn">▶️ 连续运行</button>
+                <button id="resetBtn" class="btn">🔄 重置</button>
+                <button id="clearUartBtn" class="btn">🧹 清空控制台</button>
+                <button id="open2048Btn" class="btn btn-game">🎲 2048</button>
+                <button id="openPacmanBtn" class="btn btn-game">👾 吃豆人</button>
+            </div>
+            <div class="status-bar"><span>📌 PC: <span id="pcDisplay">0x00000000</span></span><span>⚙️ 最新指令: <span id="instrDisplay">(未加载)</span></span><span id="runState">⏸️ 就绪</span></div>
+            <div class="pipeline-container"><div class="section-title">🔁 五级流水线</div><div class="pipeline-grid" id="pipelineView"></div></div>
+            <div class="gantt-container">
+                <div class="gantt-title">
+                    <span>📊 流水线甘特图 <span style="font-size:0.7rem;">(模拟器追踪 / JSON回放)</span></span>
+                    <span id="playProgress" style="font-size:0.8rem;"></span>
+                </div>
+                <canvas id="ganttCanvas" width="800" height="140"></canvas>
+            </div>
+        </div>
+        <div class="right">
+            <div><div class="section-title">📊 寄存器文件</div><div class="reg-grid" id="regContainer"></div></div>
+            <div><div class="section-title">🧠 内存 (0x0000-0x003F)</div><div class="mem-dump" id="memDump"></div></div>
+            <div><div class="section-title">🖥️ UART 输出</div><div class="uart-console" id="uartConsole">[系统] 就绪</div></div>
+            <div class="multi-user-panel">
+                <div class="section-title" style="border-left-color:#e67e22;">👥 多标签页协作</div>
+                <div class="my-reg-card">
+                    <div class="reg-selector"><label>🔖 我关注的寄存器:</label><select id="myRegSelect"></select></div>
+                    <div class="my-reg-value" id="myRegValue">0x00000000</div>
+                    <button id="refreshCollabBtn" class="btn" style="padding:6px 12px;">🔄 刷新列表</button>
+                </div>
+                <div class="online-users"><div style="font-weight:600; margin-bottom:8px;">🌐 在线协作者</div><div id="usersList" class="users-list">等待其他标签页...</div></div>
+                <div class="footer-note">* 打开多个本页面标签页，每个可订阅不同寄存器，值实时同步</div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="overlay" id="overlay"></div>
+<div class="game-modal" id="gameModal">
+    <div class="modal-header" style="display:flex; justify-content:space-between;"><span class="modal-title" id="gameTitle">2048</span><button class="close-btn" id="closeModalBtn" style="background:none; border:none; font-size:28px;">&times;</button></div>
+    <div class="game-canvas-box"><canvas id="gameCanvas" width="300" height="300"></canvas></div>
+    <div style="display:flex; gap:8px; justify-content:center; margin-top:16px;"><button class="btn" id="gameResetBtn">🔄 重置游戏</button><button class="btn btn-game" id="syncToSimBtn">📤 同步代码到模拟器</button></div>
+    <p id="gameHint" style="font-size:0.8rem; color:#2e4e7a; text-align:center; margin-top:12px;"></p>
+</div>
+
+<script>
+    (function(){
+        "use strict";
+
+        // ---------- 模拟器核心 ----------
+        const MEM_SIZE = 256 * 1024;
+        const UART_BASE = 0x10000000;
+        class PipelineCPU {
+            constructor() {
+                this.mem = new Uint8Array(MEM_SIZE);
+                this.reg = new Int32Array(32);
+                this.pc = 0;
+                this.cycles = 0;
+                this.halted = false;
+                this.IF_ID = { valid: false, pc: 0, inst: 0 };
+                this.ID_EX = { valid: false };
+                this.EX_MEM = { valid: false };
+                this.MEM_WB = { valid: false };
+                this.forward_ex = { rd:-1, val:0 };
+                this.forward_mem = { rd:-1, val:0 };
+                this.changedRegs = new Set();
+                this.prevReg = new Int32Array(32);
+                this.lastUartChar = '';
+                this.stall = false;
+                this.instTrace = [];
+            }
+            reset() {
+                this.mem.fill(0); this.reg.fill(0); this.pc = 0; this.halted = false;
+                this.IF_ID = { valid: false, pc: 0, inst: 0 }; this.ID_EX = { valid: false };
+                this.EX_MEM = { valid: false }; this.MEM_WB = { valid: false };
+                this.stall = false; this.lastUartChar = ''; this.prevReg.fill(0);
+                this.changedRegs.clear(); this.instTrace = []; this.reg[0] = 0;
+            }
+            loadProgram(binary) { this.reset(); for(let i=0;i<binary.length;i++) this.mem[i]=binary[i]; this.pc=0; this.saveRegSnapshot(); }
+            saveRegSnapshot() { for(let i=0;i<32;i++) this.prevReg[i]=this.reg[i]; this.changedRegs.clear(); }
+            read32(addr){ if(addr<0||addr+3>=MEM_SIZE)return 0; return (this.mem[addr]|(this.mem[addr+1]<<8)|(this.mem[addr+2]<<16)|(this.mem[addr+3]<<24))>>>0; }
+            write32(addr,val){ if(addr<0||addr+3>=MEM_SIZE)return; this.mem[addr]=val&0xFF; this.mem[addr+1]=(val>>8)&0xFF; this.mem[addr+2]=(val>>16)&0xFF; this.mem[addr+3]=(val>>>24)&0xFF; if(addr===UART_BASE) this.lastUartChar+=String.fromCharCode(val&0xFF); }
+            write8(addr,val){ if(addr<0||addr>=MEM_SIZE)return; this.mem[addr]=val&0xFF; if(addr===UART_BASE) this.lastUartChar+=String.fromCharCode(val&0xFF); }
+            fetch(){ if(this.pc<0||this.pc+3>=MEM_SIZE)return 0; return (this.mem[this.pc]|(this.mem[this.pc+1]<<8)|(this.mem[this.pc+2]<<16)|(this.mem[this.pc+3]<<24))>>>0; }
+            forward(rs, ex_rd, ex_val, mem_rd, mem_val){ if(rs!==0){ if(ex_rd===rs && ex_rd!==0) return ex_val; if(mem_rd===rs && mem_rd!==0) return mem_val; } return this.reg[rs]; }
+            cycle() {
+                if(this.halted) return false;
+                this.saveRegSnapshot(); this.lastUartChar = '';
+                if(this.IF_ID.valid) { this.instTrace.push({ pc: this.IF_ID.pc, inst: this.IF_ID.inst }); if(this.instTrace.length > 20) this.instTrace.shift(); }
+                if(this.MEM_WB.valid && this.MEM_WB.wb_en) { const rd = this.MEM_WB.rd; if(rd!==0) this.reg[rd] = (this.MEM_WB.mem_data!==undefined ? this.MEM_WB.mem_data : this.MEM_WB.alu_result) | 0; }
+                this.forward_mem.rd = (this.MEM_WB.valid && this.MEM_WB.wb_en) ? this.MEM_WB.rd : -1;
+                this.forward_mem.val = this.forward_mem.rd!==-1 ? this.reg[this.forward_mem.rd] : 0;
+                let mem_data = 0;
+                if(this.EX_MEM.valid) { const addr = this.EX_MEM.alu_result >>> 0; if(this.EX_MEM.mem_read) mem_data = this.read32(addr); else if(this.EX_MEM.mem_write) this.write32(addr, this.EX_MEM.rs2_val); }
+                this.MEM_WB = { valid: this.EX_MEM.valid, pc: this.EX_MEM.pc, alu_result: this.EX_MEM.alu_result, mem_data: this.EX_MEM.mem_read ? mem_data : this.EX_MEM.alu_result, rd: this.EX_MEM.rd, wb_en: this.EX_MEM.wb_en };
+                let alu_result = 0, ex_rd = -1, ex_wb_en = false;
+                if(this.ID_EX.valid && !this.stall) {
+                    const rs1_fwd = this.forward(this.ID_EX.rs1, this.forward_ex.rd, this.forward_ex.val, this.forward_mem.rd, this.forward_mem.val);
+                    const rs2_fwd = this.forward(this.ID_EX.rs2, this.forward_ex.rd, this.forward_ex.val, this.forward_mem.rd, this.forward_mem.val);
+                    const A = rs1_fwd; const B = (this.ID_EX.alu_op === 'reg' || this.ID_EX.mem_write) ? rs2_fwd : this.ID_EX.imm;
+                    switch(this.ID_EX.alu_op) {
+                        case 'add': alu_result = A + B; break; case 'sub': alu_result = A - B; break;
+                        case 'xor': alu_result = A ^ B; break; case 'or': alu_result = A | B; break;
+                        case 'and': alu_result = A & B; break; default: alu_result = A + B;
+                    }
+                    ex_rd = this.ID_EX.rd; ex_wb_en = this.ID_EX.wb_en;
+                }
+                this.forward_ex.rd = (this.ID_EX.valid && !this.stall && ex_wb_en) ? ex_rd : -1;
+                this.forward_ex.val = this.forward_ex.rd !== -1 ? alu_result : 0;
+                this.EX_MEM = { valid: this.ID_EX.valid && !this.stall, pc: this.ID_EX.pc, alu_result, rs2_val: this.ID_EX.valid ? this.forward(this.ID_EX.rs2, this.forward_ex.rd, this.forward_ex.val, this.forward_mem.rd, this.forward_mem.val) : 0, rd: ex_rd, mem_read: this.ID_EX.mem_read, mem_write: this.ID_EX.mem_write, wb_en: ex_wb_en, funct3: this.ID_EX.funct3 };
+                let id_valid = this.IF_ID.valid && !this.stall;
+                let new_ID_EX = { valid: false }, branch_taken=false, branch_target=0;
+                if(id_valid) {
+                    const inst = this.IF_ID.inst, opcode = inst & 0x7F, rd = (inst>>7)&0x1F, rs1 = (inst>>15)&0x1F, rs2 = (inst>>20)&0x1F;
+                    const funct3 = (inst>>12)&0x7, funct7 = (inst>>25)&0x7F;
+                    const immI = ((inst>>20)&0xFFF) | ((inst&0x80000000)?0xFFFFF000:0);
+                    const immS = ((inst>>7)&0x1F) | (((inst>>25)&0x7F)<<5) | ((inst&0x80000000)?0xFFFFF000:0);
+                    const immB = ((inst>>7)&0x1E) | ((inst>>25)&0x7E0) | (((inst>>8)&0x1)<<11) | ((inst&0x80000000)?0xFFFFF000:0);
+                    const immU = (inst & 0xFFFFF000)>>>0;
+                    const immJ = ((inst>>21)&0x7FE) | ((inst>>20)&0x1) | (((inst>>12)&0xFF)<<12) | ((inst&0x80000000)?0xFFF00000:0);
+                    let alu_op='add', mem_read=false, mem_write=false, wb_en=true, imm=0;
+                    const load_dest = (this.ID_EX.valid && this.ID_EX.mem_read) ? this.ID_EX.rd : -1;
+                    if((rs1!==0 && rs1===load_dest) || (rs2!==0 && rs2===load_dest)) { this.stall = true; id_valid = false; } else this.stall = false;
+                    if(!this.stall) {
+                        if(opcode===0x33){ if(funct3===0x0) alu_op=(funct7===0x20)?'sub':'add'; else if(funct3===0x4) alu_op='xor'; else if(funct3===0x6) alu_op='or'; else if(funct3===0x7) alu_op='and'; }
+                        else if(opcode===0x13){ alu_op='add'; imm=immI; } else if(opcode===0x03){ mem_read=true; alu_op='add'; imm=immI; }
+                        else if(opcode===0x23){ mem_write=true; alu_op='add'; imm=immS; wb_en=false; }
+                        else if(opcode===0x63){
+                            const rs1v=this.forward(rs1,this.forward_ex.rd,this.forward_ex.val,this.forward_mem.rd,this.forward_mem.val);
+                            const rs2v=this.forward(rs2,this.forward_ex.rd,this.forward_ex.val,this.forward_mem.rd,this.forward_mem.val);
+                            let take=false; if(funct3===0x0) take=(rs1v===rs2v); else if(funct3===1) take=(rs1v!==rs2v); else if(funct3===4) take=(rs1v<rs2v); else if(funct3===5) take=(rs1v>=rs2v);
+                            if(take){ branch_taken=true; branch_target=(this.IF_ID.pc+immB)>>>0; } wb_en=false;
+                        } else if(opcode===0x6F){ branch_taken=true; branch_target=(this.IF_ID.pc+immJ)>>>0; wb_en=true; alu_op='add'; }
+                        else if(opcode===0x67){ branch_taken=true; const rs1v=this.forward(rs1,this.forward_ex.rd,this.forward_ex.val,this.forward_mem.rd,this.forward_mem.val); branch_target=((rs1v+immI)&~1)>>>0; wb_en=true; }
+                        else if(opcode===0x37){ alu_op='lui'; imm=immU; } else if(opcode===0x17){ alu_op='auipc'; imm=immU; } else if(opcode===0x73){ this.halted=true; }
+                        new_ID_EX = { valid:true, pc:this.IF_ID.pc, inst, rs1, rs2, rd, imm, funct3, funct7, opcode, alu_op, mem_read, mem_write, wb_en };
+                    }
+                }
+                this.ID_EX = id_valid ? new_ID_EX : { valid: false };
+                if(branch_taken){ this.IF_ID.valid = false; this.pc = branch_target; } else { if(!this.stall) this.pc = (this.pc+4)>>>0; }
+                if(!this.stall && !this.halted){ const inst=this.fetch(); this.IF_ID = { valid:true, pc:this.pc-4, inst }; } else { if(!this.stall) this.IF_ID.valid=false; }
+                this.reg[0]=0; this.cycles++;
+                for(let i=1;i<32;i++) if(this.reg[i]!==this.prevReg[i]) this.changedRegs.add(i);
+                return true;
+            }
+            getStateForUI() {
+                return {
+                    pc:this.pc, regs:Array.from(this.reg), memBlock:Array.from(this.mem.slice(0,64)),
+                    uartOutput:this.lastUartChar,
+                    pipeline:{ IF:this.IF_ID.valid?{pc:this.IF_ID.pc,inst:this.IF_ID.inst}:null, ID:this.ID_EX.valid?{pc:this.ID_EX.pc}:null, EX:this.EX_MEM.valid?{pc:this.EX_MEM.pc}:null, MEM:this.EX_MEM.valid?{pc:this.EX_MEM.pc}:null, WB:this.MEM_WB.valid?{pc:this.MEM_WB.pc}:null },
+                    instTrace:this.instTrace.slice(-12), halted:this.halted
+                };
+            }
+        }
+
+        // 汇编器
+        const regMap = { 'zero':0,'ra':1,'sp':2,'gp':3,'tp':4,'t0':5,'t1':6,'t2':7,'s0':8,'fp':8,'s1':9,'a0':10,'a1':11,'a2':12,'a3':13,'a4':14,'a5':15,'a6':16,'a7':17,'s2':18,'s3':19,'s4':20,'s5':21,'s6':22,'s7':23,'s8':24,'s9':25,'s10':26,'s11':27,'t3':28,'t4':29,'t5':30,'t6':31 };
+        function parseReg(r){ if(r.startsWith('x')) return parseInt(r.substring(1)); return regMap[r.toLowerCase()]??null; }
+        function parseImm(str){ if(str.startsWith('0x')) return parseInt(str,16); return parseInt(str,10); }
+        function assemble(code) {
+            const lines = code.split('\n'); const labels=new Map(); let instructions=[], addr=0;
+            for(let line of lines){
+                line=line.replace(/#.*$/,'').trim(); if(!line) continue;
+                if(line.endsWith(':')){ labels.set(line.slice(0,-1).trim(), addr); continue; }
+                const parts=line.split(/[\s,]+/).filter(p=>p); if(parts.length===0) continue;
+                const mnem=parts[0].toLowerCase(); let real=null;
+                if(mnem==='li'){ const rd=parseReg(parts[1]), imm=parseImm(parts[2]); if(imm>=-2048&&imm<2048) real={type:'I',opcode:0x13,rd,rs1:0,funct3:0,imm}; else { const luiV=(imm+0x800)&0xFFFFF000; instructions.push({addr, inst:(0x37|(rd<<7)|((luiV>>>12)<<12))>>>0}); addr+=4; real={type:'I',opcode:0x13,rd,rs1:rd,funct3:0,imm:imm-luiV}; } }
+                else if(mnem==='mv') real={type:'R',opcode:0x33,rd:parseReg(parts[1]),rs1:parseReg(parts[2]),rs2:0,funct3:0,funct7:0};
+                else if(mnem==='call') real={type:'J',opcode:0x6F,rd:1,imm:0,label:parts[1]};
+                else if(mnem==='ret') real={type:'I',opcode:0x67,rd:0,rs1:1,funct3:0,imm:0};
+                else if(mnem==='j') real={type:'J',opcode:0x6F,rd:0,imm:0,label:parts[1]};
+                else if(['add','sub','xor','or','and'].includes(mnem)){ real={type:'R',opcode:0x33,rd:parseReg(parts[1]),rs1:parseReg(parts[2]),rs2:parseReg(parts[3]),funct3:mnem==='add'?0:mnem==='sub'?0:mnem==='xor'?4:mnem==='or'?6:7,funct7:mnem==='sub'?0x20:0}; }
+                else if(['addi','xori','ori','andi'].includes(mnem)){ real={type:'I',opcode:0x13,rd:parseReg(parts[1]),rs1:parseReg(parts[2]),funct3:mnem==='addi'?0:mnem==='xori'?4:mnem==='ori'?6:7,imm:parseImm(parts[3])}; }
+                else if(mnem==='lw'){ const m=parts[2].match(/\((.+)\)/); real={type:'I',opcode:0x03,rd:parseReg(parts[1]),rs1:parseReg(m[1]),funct3:2,imm:parseImm(parts[2].split('(')[0])}; }
+                else if(mnem==='sw'){ const m=parts[2].match(/\((.+)\)/); real={type:'S',opcode:0x23,rs2:parseReg(parts[1]),rs1:parseReg(m[1]),funct3:2,imm:parseImm(parts[2].split('(')[0])}; }
+                else if(mnem==='sb'){ const m=parts[2].match(/\((.+)\)/); real={type:'S',opcode:0x23,rs2:parseReg(parts[1]),rs1:parseReg(m[1]),funct3:0,imm:parseImm(parts[2].split('(')[0])}; }
+                else if(['beq','bne','blt','bge'].includes(mnem)){ real={type:'B',opcode:0x63,rs1:parseReg(parts[1]),rs2:parseReg(parts[2]),funct3:mnem==='beq'?0:mnem==='bne'?1:mnem==='blt'?4:5,label:parts[3]}; }
+                if(real){ instructions.push({addr, ...real}); addr+=4; }
+            }
+            const binary = new Uint8Array(addr);
+            for(let ins of instructions){
+                let word=0; const offset = labels.get(ins.label) - ins.addr;
+                if(ins.type==='R') word = ins.opcode|(ins.rd<<7)|(ins.funct3<<12)|(ins.rs1<<15)|(ins.rs2<<20)|(ins.funct7<<25);
+                else if(ins.type==='I') word = ins.opcode|(ins.rd<<7)|(ins.funct3<<12)|(ins.rs1<<15)|((ins.imm&0xFFF)<<20);
+                else if(ins.type==='S') word = ins.opcode|((ins.imm&0x1F)<<7)|(ins.funct3<<12)|(ins.rs1<<15)|(ins.rs2<<20)|(((ins.imm>>5)&0x7F)<<25);
+                else if(ins.type==='B') word = ins.opcode|(((offset>>11)&1)<<7)|(((offset>>1)&0xF)<<8)|(ins.funct3<<12)|(ins.rs1<<15)|(ins.rs2<<20)|(((offset>>5)&0x3F)<<25)|(((offset>>12)&1)<<31);
+                else if(ins.type==='J') word = ins.opcode|(ins.rd<<7)|(((offset>>12)&0xFF)<<12)|(((offset>>11)&1)<<20)|(((offset>>1)&0x3FF)<<21)|(((offset>>20)&1)<<31);
+                binary[ins.addr]=word&0xFF; binary[ins.addr+1]=(word>>8)&0xFF; binary[ins.addr+2]=(word>>16)&0xFF; binary[ins.addr+3]=(word>>24)&0xFF;
+            }
+            return binary;
+        }
+
+        // ---------- 全局变量 ----------
+        const cpu = new PipelineCPU();
+        let runningInterval = null;
+        let jsonPlayInterval = null;
+        let uploadedTrace = null;
+        let currentPlayIndex = 0;
+        let suppressBroadcast = false;
+
+        const editor = document.getElementById('codeEditor');
+        const pcSpan = document.getElementById('pcDisplay'), instrSpan = document.getElementById('instrDisplay');
+        const regContainer = document.getElementById('regContainer'), memDump = document.getElementById('memDump');
+        const uartConsole = document.getElementById('uartConsole'), runStateSpan = document.getElementById('runState');
+        const pipelineView = document.getElementById('pipelineView'), ganttCanvas = document.getElementById('ganttCanvas');
+        const gctx = ganttCanvas.getContext('2d');
+        const playProgress = document.getElementById('playProgress');
+        const playJsonBtn = document.getElementById('playJsonBtn');
+        const stopPlayBtn = document.getElementById('stopPlayBtn');
+        const myRegSelect = document.getElementById('myRegSelect');
+        const myRegValueSpan = document.getElementById('myRegValue');
+
+        // 初始化寄存器下拉框
+        for(let i=0;i<32;i++) {
+            const opt = document.createElement('option');
+            opt.value = i;
+            const abi = ['zero','ra','sp','gp','tp','t0','t1','t2','s0/fp','s1','a0','a1','a2','a3','a4','a5','a6','a7','s2','s3','s4','s5','s6','s7','s8','s9','s10','s11','t3','t4','t5','t6'][i];
+            opt.textContent = `x${i} (${abi})`;
+            if(i===10) opt.selected = true;
+            myRegSelect.appendChild(opt);
+        }
+
+        function drawGanttFromTrace(trace, highlightIndex = -1) {
+            gctx.clearRect(0,0,ganttCanvas.width,ganttCanvas.height);
+            if(!trace || trace.length===0) return;
+            const recent = trace.slice(-12);
+            recent.forEach((item, idx) => {
+                gctx.fillStyle = (highlightIndex >= 0 && idx === highlightIndex) ? '#ffaa00' : '#4c9aff';
+                gctx.fillRect(40, 20+idx*10, 80, 8);
+                gctx.fillStyle = 'white';
+                gctx.fillText('0x'+(item.pc>>>0).toString(16).slice(-4), 5, 28+idx*10);
+            });
+        }
+
+        function renderAll() {
+            const state = cpu.getStateForUI();
+            pcSpan.textContent = `0x${(state.pc>>>0).toString(16).padStart(8,'0')}`;
+            const inst = cpu.fetch(); instrSpan.textContent = cpu.halted?'(停机)':`0x${inst.toString(16).padStart(8,'0')}`;
+            let regHtml='';
+            for(let i=0;i<32;i++) {
+                const val = state.regs[i];
+                regHtml+=`<div class="reg-item ${cpu.changedRegs.has(i)?'changed':''}"><span class="reg-name">x${i}</span><span class="reg-value">0x${(val>>>0).toString(16).padStart(8,'0')}</span></div>`;
+            }
+            regContainer.innerHTML = regHtml;
+            let dump='';
+            for(let i=0;i<64;i+=16){
+                let hex='',ascii='';
+                for(let j=0;j<16;j++){ const b=state.memBlock[i+j]||0; hex+=b.toString(16).padStart(2,'0')+' '; ascii+=(b>=32&&b<127)?String.fromCharCode(b):'.'; }
+                dump+=`0x${i.toString(16).padStart(4,'0')}: ${hex} ${ascii}\n`;
+            }
+            memDump.textContent = dump;
+            if(state.uartOutput) { uartConsole.textContent += state.uartOutput; uartConsole.scrollTop = uartConsole.scrollHeight; }
+            runStateSpan.textContent = cpu.halted?'⏹️ 停机':(runningInterval?'⏵ 运行中':'⏸️ 就绪');
+            const p = state.pipeline;
+            let pipeHtml = `<div class="pipe-stage ${p.IF?'active':''}"><div class="stage-name">IF</div><div class="stage-pc">${p.IF?'0x'+p.IF.pc.toString(16):'—'}</div></div>`;
+            pipeHtml += `<div class="pipe-stage ${p.ID?'active':''}"><div class="stage-name">ID</div><div class="stage-pc">${p.ID?'0x'+p.ID.pc.toString(16):'—'}</div></div>`;
+            pipeHtml += `<div class="pipe-stage ${p.EX?'active':''}"><div class="stage-name">EX</div><div class="stage-pc">${p.EX?'0x'+p.EX.pc.toString(16):'—'}</div></div>`;
+            pipeHtml += `<div class="pipe-stage ${p.MEM?'active':''}"><div class="stage-name">MEM</div><div class="stage-pc">${p.MEM?'0x'+p.MEM.pc.toString(16):'—'}</div></div>`;
+            pipeHtml += `<div class="pipe-stage ${p.WB?'active':''}"><div class="stage-name">WB</div><div class="stage-pc">${p.WB?'0x'+p.WB.pc.toString(16):'—'}</div></div>`;
+            pipelineView.innerHTML = pipeHtml;
+            drawGanttFromTrace(state.instTrace);
+            const myIdx = parseInt(myRegSelect.value,10);
+            myRegValueSpan.innerText = `0x${(cpu.reg[myIdx]>>>0).toString(16).padStart(8,'0')}`;
+            if (!suppressBroadcast) broadcastCPUState();
+        }
+
+        // ---------- 多标签页协作 (修复高亮问题) ----------
+        const channel = new BroadcastChannel('riscv_collab');
+        const myTabId = 'tab_'+Math.random().toString(36).substr(2,8);
+        document.getElementById('myTabId').innerText = myTabId.substr(0,8);
+        let mySubscribedReg = 10;
+        let remoteUsers = new Map();
+
+        function broadcastCPUState() {
+            channel.postMessage({
+                type:'state_update',
+                tabId: myTabId,
+                regIndex: mySubscribedReg,
+                regValue: cpu.reg[mySubscribedReg],
+                allRegs: Array.from(cpu.reg),
+                pc: cpu.pc
+            });
+        }
+        function broadcastMySubscription() {
+            channel.postMessage({ type:'subscribe', tabId:myTabId, regIndex:mySubscribedReg, regValue:cpu.reg[mySubscribedReg] });
+        }
+        function updateUsersList() {
+            const div = document.getElementById('usersList');
+            const others = Array.from(remoteUsers.entries()).filter(([id])=>id!==myTabId);
+            if(others.length===0) {
+                div.innerHTML='<span style="color:#6c8db0;">暂无其他协作者，打开多个标签页</span>';
+                return;
+            }
+            let html='';
+            for(let [id,info] of others) {
+                html+=`<div class="user-tag"><span>👤 ${id.substr(0,6)}</span><span class="user-reg-badge">x${info.regIndex}</span><span style="font-family:monospace;">0x${(info.regValue>>>0).toString(16).padStart(8,'0')}</span></div>`;
+            }
+            div.innerHTML = html;
+        }
+        channel.onmessage = (e) => {
+            const d = e.data;
+            if(!d || d.tabId === myTabId) return;
+            const now = Date.now();
+            if(d.type === 'state_update') {
+                const ex = remoteUsers.get(d.tabId) || {};
+                ex.regIndex = d.regIndex;
+                ex.regValue = d.regValue;
+                ex.lastSeen = now;
+                remoteUsers.set(d.tabId, ex);
+                updateUsersList();
+                if (d.allRegs && Array.isArray(d.allRegs)) {
+                    suppressBroadcast = true;
+                    // 记录旧值，用于比较变化
+                    const oldRegs = Array.from(cpu.reg);
+                    for(let i=0; i<32; i++) {
+                        cpu.reg[i] = d.allRegs[i] | 0;
+                    }
+                    cpu.pc = d.pc >>> 0;
+                    // 仅标记真正变化的寄存器
+                    cpu.changedRegs.clear();
+                    for(let i=1; i<32; i++) {
+                        if(cpu.reg[i] !== oldRegs[i]) cpu.changedRegs.add(i);
+                    }
+                    renderAll();
+                    suppressBroadcast = false;
+                }
+            } else if(d.type === 'subscribe') {
+                const ex = remoteUsers.get(d.tabId) || {};
+                ex.regIndex = d.regIndex;
+                ex.regValue = d.regValue;
+                ex.lastSeen = now;
+                remoteUsers.set(d.tabId, ex);
+                updateUsersList();
+            } else if(d.type === 'heartbeat') {
+                const ex = remoteUsers.get(d.tabId);
+                if(ex) ex.lastSeen = now;
+            } else if(d.type === 'request_refresh') {
+                broadcastCPUState();
+            }
+        };
+        // 心跳与清理
+        setInterval(()=>{
+            channel.postMessage({ type:'heartbeat', tabId:myTabId, regIndex:mySubscribedReg, regValue:cpu.reg[mySubscribedReg] });
+            const now = Date.now();
+            let changed = false;
+            for(let [id,info] of remoteUsers) {
+                if(now - info.lastSeen > 30000) { remoteUsers.delete(id); changed = true; }
+            }
+            if(changed) updateUsersList();
+        }, 5000);
+        function onMyRegChange() {
+            mySubscribedReg = parseInt(myRegSelect.value,10);
+            broadcastMySubscription();
+            renderAll();
+        }
+        myRegSelect.onchange = onMyRegChange;
+        document.getElementById('refreshCollabBtn').onclick = () => {
+            channel.postMessage({ type:'request_refresh', tabId:myTabId });
+            broadcastMySubscription();
+        };
+        setTimeout(()=>broadcastMySubscription(), 500);
+
+        // ---------- 模拟器控制 ----------
+        function loadProgram() {
+            try {
+                const bin = assemble(editor.value);
+                cpu.loadProgram(bin);
+                uartConsole.textContent = '[UART] 程序已加载。\n';
+                renderAll();
+            } catch(e) { alert('汇编错误: '+e.message); }
+        }
+        function stepCycle() { if(!cpu.halted) { cpu.cycle(); renderAll(); } else alert('已停机'); }
+        function runCycle() {
+            if(runningInterval) return;
+            runningInterval = setInterval(()=>{
+                if(!cpu.halted){ cpu.cycle(); renderAll(); }
+                else { clearInterval(runningInterval); runningInterval=null; renderAll(); }
+            }, 50);
+        }
+        function resetCPU() {
+            if(runningInterval){ clearInterval(runningInterval); runningInterval=null; }
+            cpu.reset(); renderAll();
+        }
+
+        document.getElementById('assembleBtn').onclick = loadProgram;
+        document.getElementById('stepCycleBtn').onclick = stepCycle;
+        document.getElementById('runCycleBtn').onclick = runCycle;
+        document.getElementById('resetBtn').onclick = resetCPU;
+        document.getElementById('clearUartBtn').onclick = ()=> { uartConsole.textContent = ''; };
+
+        // ---------- JSON 上传、绘制与逐条回放 ----------
+        function stopJsonPlayback() {
+            if(jsonPlayInterval) {
+                clearInterval(jsonPlayInterval);
+                jsonPlayInterval = null;
+            }
+            playJsonBtn.disabled = false;
+            stopPlayBtn.disabled = true;
+            playProgress.textContent = '';
+            currentPlayIndex = 0;
+        }
+
+        function startJsonPlayback() {
+            if(!uploadedTrace || uploadedTrace.length === 0) { alert('请先上传JSON文件'); return; }
+            stopJsonPlayback();
+            currentPlayIndex = 0;
+            cpu.changedRegs.clear();
+            const trace = uploadedTrace.slice(0, 12);
+            playJsonBtn.disabled = true;
+            stopPlayBtn.disabled = false;
+            jsonPlayInterval = setInterval(() => {
+                if(currentPlayIndex >= trace.length) {
+                    stopJsonPlayback();
+                    return;
+                }
+                const item = trace[currentPlayIndex];
+                const inst = item.inst;
+                const rd = (inst >> 7) & 0x1F;
+                if(rd !== 0) {
+                    const mockVal = ((item.pc * 7 + inst * 3) & 0xFFFFFFFF) >>> 0;
+                    cpu.reg[rd] = mockVal;
+                    cpu.changedRegs.add(rd);
+                }
+                cpu.pc = item.pc;
+                drawGanttFromTrace(trace, currentPlayIndex);
+                renderAll();
+                playProgress.textContent = `播放 ${currentPlayIndex+1}/${trace.length}`;
+                currentPlayIndex++;
+            }, 400);
+        }
+
+        document.getElementById('jsonUpload').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const json = JSON.parse(ev.target.result);
+                    if(Array.isArray(json) && json.length>0 && (json[0].pc !== undefined || json[0].inst !== undefined)) {
+                        uploadedTrace = json.map(item => ({
+                            pc: item.pc >>> 0,
+                            inst: item.inst >>> 0
+                        }));
+                        alert(`成功导入 ${uploadedTrace.length} 条指令记录`);
+                        drawGanttFromTrace(uploadedTrace.slice(0,12));
+                        playJsonBtn.disabled = false;
+                    } else throw new Error('格式错误，需要数组，每个元素含pc/inst');
+                } catch(ex) { alert('JSON解析失败: '+ex.message); }
+            };
+            reader.readAsText(file);
+        });
+
+        document.getElementById('drawJsonBtn').onclick = () => {
+            if(uploadedTrace) drawGanttFromTrace(uploadedTrace.slice(0,12));
+            else alert('请先上传JSON文件');
+        };
+
+        playJsonBtn.onclick = startJsonPlayback;
+        stopPlayBtn.onclick = stopJsonPlayback;
+
+        // ---------- 游戏部分 (保持不变) ----------
+        let currentGame = null;
+        const modal = document.getElementById('gameModal'), overlay = document.getElementById('overlay');
+        const gameCanvas = document.getElementById('gameCanvas'), ctx = gameCanvas.getContext('2d');
+        const gameTitleSpan = document.getElementById('gameTitle'), gameHintP = document.getElementById('gameHint');
+        function closeModal() { modal.classList.remove('active'); overlay.classList.remove('active'); currentGame=null; }
+        document.getElementById('closeModalBtn').onclick = closeModal;
+        overlay.onclick = closeModal;
+        let board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+        function init2048() { board = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; addRandom2048(); addRandom2048(); draw2048(); }
+        function addRandom2048() { let empty=[]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) if(board[i][j]===0) empty.push([i,j]); if(empty.length){ let [r,c]=empty[Math.floor(Math.random()*empty.length)]; board[r][c]=Math.random()<0.9?2:4; } }
+        function draw2048() { ctx.clearRect(0,0,300,300); for(let i=0;i<4;i++) for(let j=0;j<4;j++){ let v=board[i][j]; ctx.fillStyle=v?'#c9e2ff':'#eef3fc'; ctx.fillRect(j*75+2,i*75+2,71,71); if(v){ ctx.fillStyle='#1e3a6f'; ctx.font='bold 28px "Segoe UI"'; ctx.textAlign='center'; ctx.fillText(v, j*75+37, i*75+48); } } }
+        function move2048(dir) { let rotated = JSON.parse(JSON.stringify(board)); function rotateLeft(m){ let n=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) n[3-j][i]=m[i][j]; return n; }
+            function rotateRight(m){ let n=[[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]; for(let i=0;i<4;i++) for(let j=0;j<4;j++) n[j][3-i]=m[i][j]; return n; }
+            if(dir==='up') rotated = rotateRight(rotated); else if(dir==='down') rotated = rotateLeft(rotated); else if(dir==='right') { rotated = rotateRight(rotated); rotated = rotateRight(rotated); }
+            for(let r=0;r<4;r++){ let row = rotated[r].filter(v=>v); for(let i=0;i<row.length-1;i++) if(row[i]===row[i+1]){ row[i]*=2; row.splice(i+1,1); } while(row.length<4) row.push(0); rotated[r]=row; }
+            if(dir==='up') rotated = rotateLeft(rotated); else if(dir==='down') rotated = rotateRight(rotated); else if(dir==='right') { rotated = rotateLeft(rotated); rotated = rotateLeft(rotated); }
+            if(JSON.stringify(board)!==JSON.stringify(rotated)){ board=rotated; addRandom2048(); draw2048(); } }
+        let pacman = {x:7,y:7}, dots = [];
+        function initPacman() { pacman={x:7,y:7}; dots=[]; for(let i=0;i<15;i++) for(let j=0;j<15;j++) if(!(i===7&&j===7)) dots.push({x:j,y:i}); drawPacman(); }
+        function drawPacman() { ctx.clearRect(0,0,300,300); ctx.fillStyle='#0f1f2b'; ctx.fillRect(0,0,300,300); ctx.fillStyle='#f5e6b0'; dots.forEach(d=>{ ctx.beginPath(); ctx.arc(d.x*20+10, d.y*20+10, 4,0,2*Math.PI); ctx.fill(); }); ctx.fillStyle='#ffdb58'; ctx.beginPath(); ctx.arc(pacman.x*20+10, pacman.y*20+10, 9, 0.2, 1.8*Math.PI); ctx.lineTo(pacman.x*20+10, pacman.y*20+10); ctx.fill(); }
+        function movePacman(dx,dy){ let nx=pacman.x+dx, ny=pacman.y+dy; if(nx<0||nx>=15||ny<0||ny>=15) return; pacman.x=nx; pacman.y=ny; dots = dots.filter(d=>!(d.x===pacman.x && d.y===pacman.y)); drawPacman(); if(dots.length===0) setTimeout(()=>alert('🎉 你赢了！'), 100); }
+        window.addEventListener('keydown', (e) => {
+            if(!modal.classList.contains('active')) return;
+            e.preventDefault();
+            if(currentGame==='2048'){ if(e.key==='ArrowUp') move2048('up'); else if(e.key==='ArrowDown') move2048('down'); else if(e.key==='ArrowLeft') move2048('left'); else if(e.key==='ArrowRight') move2048('right'); }
+            else if(currentGame==='pacman'){ if(e.key==='ArrowUp') movePacman(0,-1); else if(e.key==='ArrowDown') movePacman(0,1); else if(e.key==='ArrowLeft') movePacman(-1,0); else if(e.key==='ArrowRight') movePacman(1,0); }
+        });
+        function openGame(type) {
+            currentGame = type;
+            if(type==='2048'){ gameTitleSpan.innerText='2048'; gameHintP.innerText='方向键移动，相同数字合并'; init2048(); }
+            else { gameTitleSpan.innerText='吃豆人'; gameHintP.innerText='方向键移动，吃掉所有豆子'; initPacman(); }
+            modal.classList.add('active'); overlay.classList.add('active');
+        }
+        document.getElementById('open2048Btn').onclick = ()=>openGame('2048');
+        document.getElementById('openPacmanBtn').onclick = ()=>openGame('pacman');
+        document.getElementById('gameResetBtn').onclick = ()=>{ if(currentGame==='2048') init2048(); else initPacman(); };
+        function getGameAsm(gameType) {
+            if(gameType==='2048') return `# 2048 游戏核心算法演示\n_start:\n    li sp, 0x8000\n    li a0, 0x32\n    call uart_putc\n    li a0, 0x30\n    call uart_putc\n    li a0, 0x34\n    call uart_putc\n    li a0, 0x38\n    call uart_putc\n    li a0, 0x0a\n    call uart_putc\n    li t0, 0\nloop2048:\n    addi t0, t0, 1\n    li t1, 5\n    blt t0, t1, loop2048\n    li a0, 0x21\n    call uart_putc\n    j end\nuart_putc:\n    li t6, 0x10000000\n    sb a0, 0(t6)\n    ret\nend:\n    j end`;
+            else return `# 吃豆人 移动测试\n_start:\n    li sp, 0x8000\n    li a0, 0x50\n    call uart_putc\n    li a0, 0x41\n    call uart_putc\n    li a0, 0x43\n    call uart_putc\n    li a0, 0x4D\n    call uart_putc\n    li a0, 0x41\n    call uart_putc\n    li a0, 0x4E\n    call uart_putc\n    li a0, 0x0a\n    call uart_putc\n    li s0, 0\npac_loop:\n    addi s0, s0, 1\n    li t1, 8\n    blt s0, t1, pac_loop\n    j end\nuart_putc:\n    li t6, 0x10000000\n    sb a0, 0(t6)\n    ret\nend:\n    j end`;
+        }
+        document.getElementById('syncToSimBtn').onclick = () => {
+            if(currentGame) { editor.value = getGameAsm(currentGame); loadProgram(); closeModal(); }
+            else alert('请先打开一个游戏');
+        };
+
+        setTimeout(()=>loadProgram(), 100);
+    })();
+</script>
+</body>
+</html>
